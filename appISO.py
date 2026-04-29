@@ -400,6 +400,7 @@ if run_button_analyze:
     st.session_state.image = cropped_img
     st.session_state.analysis = dict_analysis
     st.session_state.roughness = data_roughness
+    st.session_state.display_h0 = dict_analysis["mean_h"]
     st.session_state.data_frame = None
     st.session_state.res_sens = None
     st.session_state.clustering = None
@@ -471,7 +472,7 @@ if st.session_state.analysis is not None:
                                                         show_height, st.session_state.analysis["mean_h"],
                                                         text_in_fig)
         st.pyplot(fig_heights)
-        st.session_state.display_h0 = st.session_state.analysis["mean_h"]
+        # st.session_state.display_h0 = st.session_state.analysis["mean_h"]
 
 
         if not dict_with_data["gauss_fit_ok"]:
