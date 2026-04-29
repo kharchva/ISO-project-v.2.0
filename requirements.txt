@@ -1,0 +1,12 @@
+streamlit
+opencv-python-headless
+pandas
+numpy
+matplotlib
+python-dotenv
+seaborn
+scipy
+scikit-image
+scikit-learn
+reportlab
+requests
