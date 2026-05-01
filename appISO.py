@@ -497,7 +497,7 @@ if st.session_state.analysis is not None:
                 st.download_button(
                     label=f"💾 {LANG['Завантажити всі дані у ZIP файл']}",
                     data=zip_data_height,
-                    file_name=st.session_state.zip_buffer["fname"],
+                    file_name=st.session_state.analysis["fname"],
                     mime="application/zip",
                     disabled=(role == "viewer")
                 )
