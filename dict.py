@@ -1,5 +1,6 @@
 LANG_UA = {
     # Заголовки та тексти
+    "": "",
     "(нм)": "(nm)",
     "[Сумський державний університет](https://sumdu.edu.ua)": "[Sumy State University](https://int.sumdu.edu.ua/en/)",
     "[Контакт](https://pom.sumdu.edu.ua/uk/kafedra/personalni-storinki/162-dvornichenko-a-v)": "[Contact](https://pom.sumdu.edu.ua/en/department/personal-pages/167-dvornichenko-av)",
@@ -149,7 +150,7 @@ LANG_UA = {
     "Площа (нм²)": "Area (nm²)",
     "Діаметр (нм)": "Diameter (nm)",
     "Периметр (нм)": "Perimeter (nm)",
-    "Коефцієнт окуглості": "Circularity coefficient",
+    "Коефіцієнт округлості": "Circularity coefficient",
     "Довжина великої вісі еліпса (нм)": "Length of major axis of ellipse (nm)",
     "Довжина малої вісі еліпса (нм)": "Length of minor axis of ellipse (nm)",
     "Коефіцієнт витягнутості": "Aspect ratio",
@@ -211,7 +212,7 @@ cols_ua = {
     "Area (nm^2)": "Площа (нм²)",
     "Diameter (nm)": "Діаметр (нм)",
     "Perimeter (nm)": "Периметр (нм)",
-    "Circularity": "Коефцієнт куглості",
+    "Circularity": "Коефіцієнт округлості",
     "Major axis of elips (nm)": "Велика вісь еліпса (нм)",
     "Minor axis of elips (nm)": "Мала вісь еліпса (нм)",
     "Aspect Ratio": "Співвідношення осей",

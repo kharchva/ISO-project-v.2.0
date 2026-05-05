@@ -5,9 +5,13 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import streamlit as st
 from scipy.optimize import curve_fit
 from scipy import stats, ndimage
 from scipy.spatial import cKDTree
+from sklearn.preprocessing import StandardScaler
+from sklearn.cluster import KMeans
+import time
 
 
 plt.rcParams.update({
@@ -124,10 +128,10 @@ def calc_distribution_from_data(data, fname, nbins, type, area_cm2):
         "y_ln_fit": y_ln_fit,
         "r2_ln": r2_ln,
         "bin_width": bin_width,
-        "datasets": datasets,
+        # "datasets": datasets,
         "mean": data.mean()
                    }
-    return dict4return
+    return dict4return, datasets
 
 
 def make_distribution_figs_and_data(dict_with_data,
@@ -161,15 +165,86 @@ def make_distribution_figs_and_data(dict_with_data,
     return fig_fit
 
 
-def make_zip_from_dict(data_dict, fig=None, fig_name="figure.png"):
-    """
-    data_dict: словник {file_name: list_of_tuples}
-    fig: matplotlib.figure.Figure, необов'язково
-    fig_name: назва файлу для фігури у ZIP
-    Повертає BytesIO з готовим ZIP-архівом
-    """
-    zip_buffer = io.BytesIO()
+@st.cache_data(show_spinner=False)
+def make_figure_numsize_png(h0, Count, Mean_diameter, mode_numbers, area_nm2, use_log_area, disp_h0,
+                            y1label, y2label, xlabel, show_text):
+# def make_figure_numsize_png(h0, Count, Mean_diameter, mode_numbers, area_nm2, use_log_area, disp_h0, lang):
+    fig_num_size, ax1 = plt.subplots(figsize=(10, 5))
+    if mode_numbers == "numbers":
+        ax1.plot(h0, Count, 'r-o')
+        # ax1.set_ylabel(f"{LANG['Кількість структур']} {LANG['(шт)']}", color='r')
+    if mode_numbers == "numdens":
+        full_area_cm2 = area_nm2 * 1E-14
+        ax1.plot(h0, Count / full_area_cm2, 'r-o')
+        # ax1.set_ylabel(f"{LANG['Густина структур']} {LANG['(см⁻²)']}", color='r')
+    ax1.tick_params(axis='y', labelcolor='r')
+    ax1.set_xlabel(xlabel)
+    ax1.set_ylabel(y1label, color='r')
+    # ax1.set_xlabel(LANG['Висота поверхні (нм)'])
+    ax1.set_ylim(bottom=0)
 
+    ax2 = ax1.twinx()
+    ax2.plot(h0, Mean_diameter, 'b--s')
+    ax2.set_ylabel(y2label, color='b')
+    # ax2.set_ylabel(LANG['Середній розмір структур (нм)'], color='b')
+    ax2.tick_params(axis='y', labelcolor='b')
+    ax2.set_ylim(bottom=0.0)
+
+    if use_log_area:
+        ax2.set_yscale('log')
+        # ax2.set_ylabel(f"{LANG['Середній розмір структур (нм)']} [Log Scale]", color='b')
+        ax2.set_ylim(bottom=1.0)
+
+    ax1.axvline(disp_h0, color='black', linestyle='--', linewidth=2)
+    ax1.grid(True, color='gray', linestyle='--', linewidth=0.5)
+    fig_num_size.text(s=show_text, **watermark_style)
+    fig_num_size.tight_layout()
+    buf = io.BytesIO()
+    fig_num_size.savefig(buf, format="png")
+    plt.close(fig_num_size)
+
+    return buf.getvalue()
+
+# @st.cache_data(show_spinner=False)
+@st.cache_data(
+    show_spinner=False,
+    hash_funcs={np.ndarray: lambda x: x.tobytes()}
+)
+def make_figure_distribution_png(dict_with_data, colorbins, xlabel, ylabel, data_label,
+                                    show_gaus, show_logn, show_mean, mean, show_text, cache_buster=None):
+    x = dict_with_data["x"]
+    y = dict_with_data["y"]
+    x_ax = dict_with_data["x_ax"]
+    gauss_fit_ok = dict_with_data["gauss_fit_ok"]
+    y_gs = dict_with_data["y_gauss_fit"]
+    r2gs = dict_with_data["r2_gauss"]
+    ln_fit_ok = dict_with_data["ln_fit_ok"]
+    y_ln = dict_with_data["y_ln_fit"]
+    r2ln = dict_with_data["r2_ln"]
+    bin_width = dict_with_data["bin_width"]
+
+    fig_fit, ax_fit = plt.subplots(figsize=(10, 5))
+    ax_fit.bar(x, y, width=bin_width * 0.8, color=colorbins, edgecolor='black', alpha=0.5, label=data_label)
+    if gauss_fit_ok and show_gaus:
+        ax_fit.plot(x_ax, y_gs, 'r-', lw=2, label=f'Gaussian fit, R²={r2gs:.4f}')
+    if ln_fit_ok and show_logn:
+        ax_fit.plot(x_ax, y_ln, 'b-', lw=2, label=f'Log-normal fit, R²={r2ln:.4f}')
+    if show_mean:
+        ax_fit.axvline(mean, color='black', linestyle='--', linewidth=2)
+    ax_fit.set_xlabel(xlabel)
+    ax_fit.set_ylabel(ylabel)
+    lines, labels = ax_fit.get_legend_handles_labels()
+    ax_fit.legend(lines[::-1], labels[::-1])
+    fig_fit.text(s=show_text, **watermark_style)
+    fig_fit.tight_layout()
+    buf = io.BytesIO()
+    fig_fit.savefig(buf, format="png")
+    plt.close(fig_fit)
+    return buf.getvalue()
+
+
+def make_zip_from_dict(data_dict, fig=None, fig_name="figure.png"):
+    zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w") as zf:
         # Додаємо текстові файли
         for file_name, data_list in data_dict.items():
@@ -181,10 +256,11 @@ def make_zip_from_dict(data_dict, fig=None, fig_name="figure.png"):
 
         # Додаємо фігуру, якщо вона є
         if fig is not None:
-            img_io = io.BytesIO()
-            fig.savefig(img_io, format="png", dpi=300, bbox_inches="tight", pad_inches=0)
-            img_io.seek(0)
-            zf.writestr(fig_name, img_io.getvalue())
+            zf.writestr(fig_name, fig)
+            # img_io = io.BytesIO()
+            # fig.savefig(img_io, format="png", dpi=300, bbox_inches="tight", pad_inches=0)
+            # img_io.seek(0)
+            # zf.writestr(fig_name, img_io.getvalue())
 
     zip_buffer.seek(0)
     return zip_buffer
@@ -471,7 +547,7 @@ def run_button_analysis(cropped_img, real_width_nm, real_height_nm, thresh_type)
     data = image_gray.ravel()*z_scale
     nbins = 15
     fname = "heights"
-    dict_with_data = calc_distribution_from_data(data, fname, nbins, "dist", full_image_area_nm2)
+    dict_with_data, datasets = calc_distribution_from_data(data, fname, nbins, "dist", full_image_area_nm2)
     dict_to_return = {
                 "z_scale": z_scale,
                 "scale_nm_px": scale_nm_px,
@@ -484,6 +560,7 @@ def run_button_analysis(cropped_img, real_width_nm, real_height_nm, thresh_type)
                 "mean_h": Sm,
                 "opt_h": opt_h,
                 "dict": dict_with_data,
+                "datasets": datasets,
                 "fname": "heights_analysis.zip",
                 "ticks": ticks
             }
@@ -622,124 +699,269 @@ def run_button_calculations(labels, scale_nm_px, full_image_area_nm2, topo_map):
 
 def calc_all_distributions(df, nbins, area_cm2):
     dict_calculated_distributions = {}
+    dict_datasets = {}
+
     #############################   DIAMETER   ###########################################################
-    dict_calculated_distributions["diameter_dist"] = calc_distribution_from_data(df['Diameter (nm)'],
-                                                                                  'diameter_dist', nbins, "dist",
-                                                                                  area_cm2)
-    dict_calculated_distributions["log(diameter)_dist"] = calc_distribution_from_data(df['Log_Diameter'],
-                                                                                      'log(diameter)_dist', nbins,
-                                                                                      "dist", area_cm2)
-    dict_calculated_distributions["diameter_dens"] = calc_distribution_from_data(df['Diameter (nm)'],
-                                                                                 'diameter_dens', nbins, "dens",
-                                                                                 area_cm2)
-    dict_calculated_distributions["log(diameter)_dens"] = calc_distribution_from_data(df['Log_Diameter'],
-                                                                                      'log(diameter)_dens', nbins,
-                                                                                      "dens", area_cm2)
+
+    name = "diameter_dist"
+    distr, data = calc_distribution_from_data(df['Diameter (nm)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(diameter)_dist"
+    distr, data = calc_distribution_from_data(df['Log_Diameter'], name, nbins,"dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "diameter_dens"
+    distr, data = calc_distribution_from_data(df['Diameter (nm)'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(diameter)_dens"
+    distr, data = calc_distribution_from_data(df['Log_Diameter'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
 
     #############################   AREA   ###########################################################
-    dict_calculated_distributions["area_dist"] = calc_distribution_from_data(df['Area (nm^2)'],
-                                                                             'area_dist', nbins, "dist", area_cm2)
-    dict_calculated_distributions["log(area)_dist"] = calc_distribution_from_data(df['Log_Area'],
-                                                                                  'log(area)_dist', nbins, "dist",
-                                                                                  area_cm2)
-    dict_calculated_distributions["area_dens"] = calc_distribution_from_data(df['Area (nm^2)'],
-                                                                             'area_dens', nbins, "dens", area_cm2)
-    dict_calculated_distributions["log(area)_dens"] = calc_distribution_from_data(df['Log_Area'],
-                                                                                  'log(area)_dens', nbins, "dens",
-                                                                                  area_cm2)
+
+    name = "area_dist"
+    distr, data = calc_distribution_from_data(df['Area (nm^2)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(area)_dist"
+    distr, data = calc_distribution_from_data(df['Log_Area'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "area_dens"
+    distr, data = calc_distribution_from_data(df['Area (nm^2)'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(area)_dens"
+    distr, data = calc_distribution_from_data(df['Log_Area'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
 
     #############################   PERIMETER   ###########################################################
 
-    dict_calculated_distributions["perimeter_dist"] = calc_distribution_from_data(df['Perimeter (nm)'],
-                                                                                  'perimeter_dist', nbins, "dist",
-                                                                                  area_cm2)
-    dict_calculated_distributions["log(perimeter)_dist"] = calc_distribution_from_data(df['Log_Perimeter'],
-                                                                                       'log(perimeter)_dist', nbins,
-                                                                                       "dist", area_cm2)
-    dict_calculated_distributions["perimeter_dens"] = calc_distribution_from_data(df['Perimeter (nm)'],
-                                                                                  'perimeter_dens', nbins, "dens",
-                                                                                  area_cm2)
-    dict_calculated_distributions["log(perimeter)_dens"] = calc_distribution_from_data(df['Log_Perimeter'],
-                                                                                       'log(perimeter)_dens', nbins,
-                                                                                       "dens", area_cm2)
+    name = "perimeter_dist"
+    distr, data = calc_distribution_from_data(df['Perimeter (nm)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(perimeter)_dist"
+    distr, data = calc_distribution_from_data(df['Log_Perimeter'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "perimeter_dens"
+    distr, data = calc_distribution_from_data(df['Perimeter (nm)'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(perimeter)_dens"
+    distr, data = calc_distribution_from_data(df['Log_Perimeter'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
 
     #############################   CIRCULARITY   ###########################################################
 
-    dict_calculated_distributions["circularity_dist"] = calc_distribution_from_data(df['Circularity'],
-                                                                                    'circularity_dist', nbins, "dist",
-                                                                                    area_cm2)
-    dict_calculated_distributions["circularity_dens"] = calc_distribution_from_data(df['Circularity'],
-                                                                                    'circularity_dens', nbins, "dens",
-                                                                                    area_cm2)
+    name = "circularity_dist"
+    distr, data = calc_distribution_from_data(df['Circularity'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "circularity_dens"
+    distr, data = calc_distribution_from_data(df['Circularity'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
 
     #############################   MAJOR AXIS  ###########################################################
 
-    dict_calculated_distributions["majoraxis_dist"] = calc_distribution_from_data(df['Major axis of elips (nm)'],
-                                                                                  'majoraxis_dist', nbins, "dist",
-                                                                                  area_cm2)
-    dict_calculated_distributions["log(majoraxis)_dist"] = calc_distribution_from_data(df['Log_Majoraxis'],
-                                                                                       'log(majoraxis)_dist', nbins,
-                                                                                       "dist", area_cm2)
-    dict_calculated_distributions["majoraxis_dens"] = calc_distribution_from_data(df['Major axis of elips (nm)'],
-                                                                                  'majoraxis_dens', nbins, "dens",
-                                                                                  area_cm2)
-    dict_calculated_distributions["log(majoraxis)_dens"] = calc_distribution_from_data(df['Log_Majoraxis'],
-                                                                                       'log(majoraxis)_dens', nbins,
-                                                                                       "dens", area_cm2)
+    name = "majoraxis_dist"
+    distr, data = calc_distribution_from_data(df['Major axis of elips (nm)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(majoraxis)_dist"
+    distr, data = calc_distribution_from_data(df['Log_Majoraxis'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "majoraxis_dens"
+    distr, data = calc_distribution_from_data(df['Major axis of elips (nm)'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(majoraxis)_dens"
+    distr, data = calc_distribution_from_data(df['Log_Majoraxis'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
 
     #############################   MINOR AXIS   ###########################################################
 
-    dict_calculated_distributions["minoraxis_dist"] = calc_distribution_from_data(df['Minor axis of elips (nm)'],
-                                                                                  'minoraxis_dist', nbins, "dist",
-                                                                                  area_cm2)
-    dict_calculated_distributions["log(minoraxis)_dist"] = calc_distribution_from_data(df['Log_Minoraxis'],
-                                                                                       'log(minoraxis)_dist', nbins,
-                                                                                       "dist", area_cm2)
-    dict_calculated_distributions["minoraxis_dens"] = calc_distribution_from_data(df['Minor axis of elips (nm)'],
-                                                                                  'minoraxis_dens', nbins, "dens",
-                                                                                  area_cm2)
-    dict_calculated_distributions["log(minoraxis)_dens"] = calc_distribution_from_data(df['Log_Minoraxis'],
-                                                                                       'log(minoraxis)_dens', nbins,
-                                                                                       "dens", area_cm2)
+    name = "minoraxis_dist"
+    distr, data = calc_distribution_from_data(df['Minor axis of elips (nm)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(minoraxis)_dist"
+    distr, data = calc_distribution_from_data(df['Log_Minoraxis'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "minoraxis_dens"
+    distr, data = calc_distribution_from_data(df['Minor axis of elips (nm)'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(minoraxis)_dens"
+    distr, data = calc_distribution_from_data(df['Log_Minoraxis'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
 
     #############################   ASPECT RATIO   ###########################################################
 
-    dict_calculated_distributions["aspect_dist"] = calc_distribution_from_data(df['Aspect Ratio'],
-                                                                               'aspect_dist', nbins, "dist", area_cm2)
-    dict_calculated_distributions["log(aspect)_dist"] = calc_distribution_from_data(df['Log_Aspectratio'],
-                                                                                    'log(aspect)_dist', nbins, "dist",
-                                                                                    area_cm2)
-    dict_calculated_distributions["aspect_dens"] = calc_distribution_from_data(df['Aspect Ratio'],
-                                                                               'aspect_dens', nbins, "dens", area_cm2)
-    dict_calculated_distributions["log(aspect)_dens"] = calc_distribution_from_data(df['Log_Aspectratio'],
-                                                                                    'log(aspect)_dens', nbins, "dens",
-                                                                                    area_cm2)
+    name = "aspect_dist"
+    distr, data = calc_distribution_from_data(df['Aspect Ratio'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(aspect)_dist"
+    distr, data = calc_distribution_from_data(df['Log_Aspectratio'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "aspect_dens"
+    distr, data = calc_distribution_from_data(df['Aspect Ratio'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(aspect)_dens"
+    distr, data = calc_distribution_from_data(df['Log_Aspectratio'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
 
     #############################   ANGLE   ###########################################################
 
-    dict_calculated_distributions["angle_dist"] = calc_distribution_from_data(df['Angle of elips'],
-                                                                              'angle_dist', nbins, "dist", area_cm2)
-    dict_calculated_distributions["log(angle)_dist"] = calc_distribution_from_data(df['Log_Angle'],
-                                                                                   'log(angle)_dist', nbins, "dist",
-                                                                                   area_cm2)
-    dict_calculated_distributions["angle_dens"] = calc_distribution_from_data(df['Angle of elips'],
-                                                                              'angle_dens', nbins, "dens", area_cm2)
-    dict_calculated_distributions["log(angle)_dens"] = calc_distribution_from_data(df['Log_Angle'],
-                                                                                   'log(angle)_dens', nbins, "dens",
-                                                                                   area_cm2)
+    name = "angle_dist"
+    distr, data = calc_distribution_from_data(df['Angle of elips'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(angle)_dist"
+    distr, data = calc_distribution_from_data(df['Log_Angle'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "angle_dens"
+    distr, data = calc_distribution_from_data(df['Angle of elips'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(angle)_dens"
+    distr, data = calc_distribution_from_data(df['Log_Angle'], name, nbins, "dens", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
 
     #############################   DISTANCES   ###########################################################
 
-    dict_calculated_distributions["distances_centers_dist"] = calc_distribution_from_data(df['Nearest Neighbor (nm)'],
-                                                                                          'distances_centers_dist',
-                                                                                          nbins, "dist", area_cm2)
-    dict_calculated_distributions["log(distances_centers)_dist"] = calc_distribution_from_data(
-        df['Log Nearest Neighbor (nm)'],
-        'log(distances_centers)_dist', nbins, "dist", area_cm2)
-    dict_calculated_distributions["distances_edge2edge_dist"] = calc_distribution_from_data(df['Edge Distance (nm)'],
-                                                                                            'distances_edge2edge_dist',
-                                                                                            nbins, "dist", area_cm2)
-    dict_calculated_distributions["log(distances_edge2edge)_dist"] = calc_distribution_from_data(
-        df['Edge Distance (nm)'],
-        'log(distances_edge2edge)_dist', nbins, "dist", area_cm2)
-    return dict_calculated_distributions
+    name = "distances_centers_dist"
+    distr, data = calc_distribution_from_data(df['Nearest Neighbor (nm)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(distances_centers)_dist"
+    distr, data = calc_distribution_from_data(df['Log Nearest Neighbor (nm)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "distances_edge2edge_dist"
+    distr, data = calc_distribution_from_data(df['Edge Distance (nm)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    name = "log(distances_edge2edge)_dist"
+    distr, data = calc_distribution_from_data(df['Log Edge Distance (nm)'], name, nbins, "dist", area_cm2)
+    dict_calculated_distributions[name] = distr
+    dict_datasets[name] = data
+
+    return dict_calculated_distributions, dict_datasets
+
+def make_dicts_for_figures():
+    value_dist = {}
+    value_dist["area"] = "Розподіл структур за площею"
+    value_dist["diameter"] = "Розподіл структур за діаметром"
+    value_dist["perimeter"] = "Розподіл структур за периметром"
+    value_dist["circularity"] = "Розподіл структур за коефіцієнтом округлості"
+    value_dist["majoraxis"] = "Розподіл структур за довжиною великої вісі еліпса"
+    value_dist["minoraxis"] = "Розподіл структур за довжиною малої вісі еліпса"
+    value_dist["aspect"] = "Розподіл структур за коефіцієнтом витягнутості"
+    value_dist["angle"] = "Розподіл структур за кутом повороту еліпса"
+    value_dist["distances_centers"] = "Розподіл найближчих міжцентрових відстаней між структурами"
+    value_dist["distances_edge2edge"] = "Розподіл відстаней між межами структур"
+
+    value_dens = {}
+    value_dens["area"] = "Залежність густини структур від площі"
+    value_dens["diameter"] = "Залежність густини структур від діаметра"
+    value_dens["perimeter"] = "Залежність густини структур від периметра"
+    value_dens["circularity"] = "Залежність густини структур від коефіцієнта округлості"
+    value_dens["majoraxis"] = "Залежність густини структур від довжини великої вісі еліпса"
+    value_dens["minoraxis"] = "Залежність густини структур від довжини малої вісі еліпса"
+    value_dens["aspect"] = "Залежність густини структур від коефіцієнта витягнутості"
+    value_dens["angle"] = "Залежність густини структур від кута повороту еліпса"
+    value_dens["distances_centers"] = ""
+    value_dens["distances_edge2edge"] = ""
+
+    value_xlable = {}
+    value_xlable["area"] = "Площа (нм²)"
+    value_xlable["diameter"] = "Діаметр (нм)"
+    value_xlable["perimeter"] = "Периметр (нм)"
+    value_xlable["circularity"] = "Коефіцієнт округлості"
+    value_xlable["majoraxis"] = "Довжина великої вісі еліпса (нм)"
+    value_xlable["minoraxis"] = "Довжина малої вісі еліпса (нм)"
+    value_xlable["aspect"] = "Коефіцієнт витягнутості"
+    value_xlable["angle"] = "Кут повороту еліпса (°)"
+    value_xlable["distances_centers"] = "Найближча міжцентрова відстань (нм)"
+    value_xlable["distances_edge2edge"] = "Відстань між межами структур (нм)"
+    return value_dist, value_dens, value_xlable
+
+
+def build_statistics_zip(csv_bytes, txt_data, image_bytes, image_name="filtered_image.png"):
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("geometric_statistics.csv", csv_bytes)
+        zf.writestr("geometric_statistics.txt", txt_data.encode("utf-8"))
+        zf.writestr(image_name, image_bytes)
+    zip_buffer.seek(0)
+    return zip_buffer
+
+
+def make_clusterization(df_plot, n_cl):
+    X = StandardScaler().fit_transform(df_plot)
+    kmeans = KMeans(n_clusters=n_cl, random_state=42, n_init=10)
+    cluster_labels = kmeans.fit_predict(X)
+    df_plot['Cluster_Temp'] = cluster_labels
+
+    cluster_means = df_plot.groupby('Cluster_Temp')['Diameter (nm)'].mean().sort_values()
+    size_names = ["Small", "Medium", "Large", "X-Large", "XX-Large"]
+    cluster_map = {}
+
+    for new_id, (old_id, val) in enumerate(cluster_means.items()):
+        name = size_names[new_id] if new_id < len(size_names) else f"Type {new_id + 1}"
+        cluster_map[old_id] = name
+
+    df_plot['Label'] = df_plot['Cluster_Temp'].map(cluster_map)
+    df_plot.drop(columns=['Cluster_Temp'], inplace=True)
+
+    order = [cluster_map[i] for i in cluster_means.index]
+    plot_data = {
+        "df": df_plot,
+        "order": order,
+        "vars": ['Diameter (nm)', 'Circularity', 'Angle of elips'],
+    }
+
+    return plot_data

@@ -58,6 +58,76 @@ def input_figure(caption, fig, size):
     img.hAlign = "CENTER"
     return img
 
+
+from reportlab.platypus import Image
+from reportlab.lib.units import cm
+from PIL import Image as PILImage
+
+def input_figure_png(img_data, size):
+    """
+    Підтримує:
+    - matplotlib.figure.Figure
+    - bytes (PNG)
+    - io.BytesIO
+    - str (шлях до файлу)
+    """
+
+    # --- 1. matplotlib.figure ---
+    try:
+        from matplotlib.figure import Figure
+        if isinstance(img_data, Figure):
+            img_buffer = io.BytesIO()
+            img_data.savefig(img_buffer, dpi=300, bbox_inches="tight")
+            img_buffer.seek(0)
+        else:
+            img_buffer = None
+    except ImportError:
+        img_buffer = None
+
+    # --- 2. bytes ---
+    if img_buffer is None and isinstance(img_data, bytes):
+        img_buffer = io.BytesIO(img_data)
+
+    # --- 3. BytesIO ---
+    if img_buffer is None and isinstance(img_data, io.BytesIO):
+        img_buffer = img_data
+
+    # --- 4. шлях до файлу ---
+    if img_buffer is None and isinstance(img_data, str):
+        pil_img = PILImage.open(img_data)
+        w, h = pil_img.size
+        aspect = h / w
+
+        pdf_width = size * cm
+        pdf_height = pdf_width * aspect
+
+        img = Image(img_data)
+        img.drawWidth = pdf_width
+        img.drawHeight = pdf_height
+        img.hAlign = "CENTER"
+        return img
+
+    # --- 5. якщо нічого не підійшло ---
+    if img_buffer is None:
+        raise ValueError(f"Unsupported image type: {type(img_data)}")
+
+    # --- 6. обробка buffer ---
+    pil_img = PILImage.open(img_buffer)
+    w, h = pil_img.size
+    aspect = h / w
+
+    img_buffer.seek(0)
+
+    pdf_width = size * cm
+    pdf_height = pdf_width * aspect
+
+    img = Image(img_buffer)
+    img.drawWidth = pdf_width
+    img.drawHeight = pdf_height
+    img.hAlign = "CENTER"
+
+    return img
+
 def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes,
     figs_dict_original_image,
     tables_dict_without_index,
@@ -101,7 +171,8 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
 
     #####################################################################################
     caption_img, fig = next(iter(figs_dict_original_image.items()))
-    img = input_figure(caption_img, fig, 8)
+    # img = input_figure(caption_img, fig, 8)
+    img = input_figure_png(fig, 8)
     # table
     caption_tbl, df = next(iter(tables_dict_without_index.items()))
     data = [df.columns.tolist()] + df.round(2).values.tolist()
@@ -166,7 +237,8 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
 
     # heights distribution
     caption, fig = next(iter(figs_dict_heights.items()))
-    img = input_figure(caption, fig, 14)
+    # img = input_figure(caption, fig, 14)
+    img = input_figure_png(fig, 14)
     elements.append(img)
     elements.append(Spacer(1, 3))
     elements.append(Paragraph(f"<b>Figure {fig_counter}. {caption}</b>", styles["Normal"]))
@@ -203,7 +275,8 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
         elements.append(Spacer(1, 25))
         # Number and size
         caption, fig = next(iter(figs_dict_num_size.items()))
-        img = input_figure(caption, fig, 14)
+        img = input_figure_png(fig, 14)
+        # img = input_figure(caption, fig, 14)
         elements.append(img)
         elements.append(Spacer(1, 3))
         elements.append(Paragraph(f"<b>Figure {fig_counter}. {caption}</b>", styles["Normal"]))
@@ -218,8 +291,8 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
     elements.append(Spacer(1, 25))
     # segmented image
     caption, fig = next(iter(figs_dict_filtered_image.items()))
-    img = input_figure(caption, fig, 10)
-
+    img = input_figure_png(fig, 10)
+    # img = input_figure(caption, fig, 10)
     elements.append(Paragraph(f"<b>Selected height:</b> {conditions2[5]} nm" , styles["Normal"]))
     elements.append(Spacer(1, 10))
     elements.append(Paragraph("<b>Limitations:</b>", styles["Normal"]))
@@ -286,7 +359,8 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
         Paragraph(f"<b>{sec_counter}.1. Size distributions</b>", styles["Heading3"])
     )
     for caption, fig in figs_dict_size.items():
-        img = input_figure(caption, fig, 14)
+        # img = input_figure(caption, fig, 14)
+        img = input_figure_png(fig, 14)
         elements.append(img)
         elements.append(Spacer(1, 3))
         elements.append(
@@ -300,7 +374,8 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
         Paragraph(f"<b>{sec_counter}.2. Geometry of structures</b>", styles["Heading3"])
     )
     for caption, fig in figs_dict_geometry.items():
-        img = input_figure(caption, fig, 14)
+        # img = input_figure(caption, fig, 14)
+        img = input_figure_png(fig, 14)
         elements.append(img)
         elements.append(Spacer(1, 3))
         elements.append(
@@ -314,7 +389,8 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
         Paragraph(f"<b>{sec_counter}.3. Distribution of distances</b>", styles["Heading3"])
     )
     for caption, fig in figs_dict_distances.items():
-        img = input_figure(caption, fig, 14)
+        # img = input_figure(caption, fig, 14)
+        img = input_figure_png(fig, 14)
         elements.append(img)
         elements.append(Spacer(1, 3))
         elements.append(
@@ -335,8 +411,15 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
             Paragraph(f"<b>{sec_counter}.1. {caption}</b>", styles["Heading3"])
         )
         elements.append(Spacer(1, 25))
-        img = input_figure(caption, fig, 17)
+        # img = input_figure(caption, fig, 17)
+        img = input_figure_png(fig, 17)
         elements.append(img)
+        elements.append(Spacer(1, 6))
+        elements.append(
+            Paragraph(f"<b>Figure {fig_counter}. {caption}</b>", styles["Normal"])
+        )
+        elements.append(Spacer(1, 25))
+        fig_counter += 1
         elements.append(Spacer(1, 25))
         elements.append(PageBreak())
         elements.append(
@@ -344,13 +427,14 @@ def generate_pdf_report(filename,width,height,conditions1,conditions2,dots_holes
         )
         # elements.append(Spacer(1, 25))
         for caption, fig in figs_dict_clustering_violinplot.items():
-            img = input_figure(caption, fig, 14)
+            # img = input_figure(caption, fig, 14)
+            img = input_figure_png(fig, 14)
             elements.append(img)
-            elements.append(Spacer(1, 6))
+            elements.append(Spacer(1, 5))
             elements.append(
                 Paragraph(f"<b>Figure {fig_counter}. {caption}</b>", styles["Normal"])
             )
-            elements.append(Spacer(1, 25))
+            elements.append(Spacer(1, 13))
             fig_counter += 1
 
     doc.build(elements)
